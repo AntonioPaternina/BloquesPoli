@@ -98,7 +98,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         try {
             LocationManager locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                verificarPermisos();
+                verificarGPS();
                 return;
             }
             this.mMap.setMyLocationEnabled(true);
@@ -115,6 +115,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         final Button button = findViewById(R.id.botonGuardar);
         button.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
+                verificarAlmacenamiento();
                 SharedPreferences settings = getSharedPreferences(ARCHIVO_PREFERENCIAS, 0);
                 SharedPreferences.Editor editor = settings.edit();
 
@@ -130,6 +131,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
     @Override
     public void onLocationChanged(Location location) {
+        verificarGPS();
         try {
             this.ubicacionUsuario = location;
             actualizarDistancias();
@@ -193,7 +195,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
     private void buscarPosicionGuardada(LocationManager locationManager) {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            verificarPermisos();
+            verificarGPS();
             return;
         }
         this.ubicacionUsuario = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
@@ -235,6 +237,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     }
 
     private LatLng cargarUbicacionGuardada(String keyLatitud, String keyLongitud) {
+        verificarAlmacenamiento();
         LatLng ubicacionGuardada = null;
         SharedPreferences sharedPreferences = getSharedPreferences(ARCHIVO_PREFERENCIAS, 0);
         if (sharedPreferences.contains(keyLatitud) && sharedPreferences.contains(keyLongitud)) {
@@ -291,6 +294,17 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     }
 
     @Override
+    protected void onStop() {
+        super.onStop();
+
+        try {
+            guardarUbicacion(this.ubicacionUsuario, KEY_LATITUD_UBICACION_GUARDADA, KEY_LONGITUD_UBICACION_GUARDADA);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Override
     protected void onDestroy() {
         super.onDestroy();
 
@@ -330,6 +344,12 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                     }
                     return;
                 }
+                case SOLICITUD_CAMERA: {
+                    if (grantResults.length > 0
+                            && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                        handlerTomarFoto();
+                    }
+                }
             }
         } catch (Exception e) {
             e.printStackTrace();
@@ -338,10 +358,15 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
     public void tomarFoto(View view) {
         try {
-            enviarSolicitudTomarFoto();
+            handlerTomarFoto();
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
+
+    private void handlerTomarFoto() {
+        verificarCamara();
+        enviarSolicitudTomarFoto();
     }
 
     private void enviarSolicitudTomarFoto() {
@@ -390,6 +415,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     }
 
     private void guardarImagen(Bitmap imagen) {
+        verificarAlmacenamiento();
         try {
             FileOutputStream fos = openFileOutput(NOMBRE_IMAGEN, Context.MODE_PRIVATE);
             imagen.compress(Bitmap.CompressFormat.PNG, 100, fos);
@@ -399,6 +425,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     }
 
     private Bitmap leerImagen() {
+        verificarAlmacenamiento();
         Bitmap foto = null;
 
         try (FileInputStream fileInputStream = openFileInput(NOMBRE_IMAGEN);) {
@@ -410,9 +437,15 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         return foto;
     }
 
-    private void verificarPermisos() {
+    private void verificarGPS() {
         verificarPermiso(Manifest.permission.ACCESS_FINE_LOCATION, SOLICITUD_ACCESS_FINE_LOCATION);
+    }
+
+    private void verificarCamara() {
         verificarPermiso(Manifest.permission.CAMERA, SOLICITUD_CAMERA);
+    }
+
+    private void verificarAlmacenamiento() {
         verificarPermiso(Manifest.permission.WRITE_EXTERNAL_STORAGE, SOLICITUD_WRITE_EXTERNAL_STORAGE);
     }
 
