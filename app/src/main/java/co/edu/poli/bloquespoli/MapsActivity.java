@@ -14,6 +14,7 @@ import android.os.Bundle;
 import android.provider.MediaStore;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.FragmentActivity;
+import android.support.v4.content.ContextCompat;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -26,8 +27,10 @@ import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.BitmapDescriptorFactory;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
 
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.util.ArrayList;
@@ -43,13 +46,21 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     public static final LatLng UBICACION_BLOQE_C = new LatLng(4.636575, -74.054591);
     public static final LatLng UBICACION_BLOQE_D = new LatLng(4.636671, -74.054993);
     public static final LatLng UBICACION_BLOQE_E = new LatLng(4.636386, -74.054753);
-    private static final int MY_PERMISSIONS_REQUEST_ACCESS_FINE_LOCATION = 1;
-    private static final int REQUEST_IMAGE_CAPTURE = 2;
+    private static final int SOLICITUD_ACCESS_FINE_LOCATION = 1;
+    private static final int PETICION_CAPTURA_IMAGEN = 2;
+    private static final int SOLICITUD_ACCESS_COARSE_LOCATION = 3;
+    private static final int SOLICITUD_CAMERA = 4;
+    private static final int SOLICITUD_WRITE_EXTERNAL_STORAGE = 5;
+    private static final int SOLICITUD_READ_EXTERNAL_STORAGE = 6;
+
 
     public static final String ARCHIVO_PREFERENCIAS = "BLOQUES_PREFERENCIAS";
-    public static final String KEY_LATITUD = "latitud";
-    public static final String KEY_LONGITUD = "longitud";
+    public static final String KEY_LATITUD_UBICACION_GUARDADA = "latitud";
+    public static final String KEY_LONGITUD_UBICACION_GUARDADA = "longitud";
     public static final String KEY_NOMBRE_MARCADOR = "nombreMarcador";
+    public static final String NOMBRE_IMAGEN = "FOTO";
+    public static final String KEY_LATITUD_FOTO = "KEY_LATITUD_FOTO";
+    public static final String KEY_LONGITUD_FOTO = "KEY_LONGITUD_FOTO";
 
     private GoogleMap mMap;
     private Location ubicacionUsuario;
@@ -59,39 +70,48 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     private double distanciaBloqueD;
     private double distanciaBloqueE;
 
-    private static final String NOMBRE_IMAGEN = "FOTO";
-    private MarkerOptions marcadorUbicacionActual;
-    private MarkerOptions marcadorFoto;
+    private MarkerOptions markerOptionsUbicacionActual;
+    private Marker markerUbicacionActual;
+    private MarkerOptions markerOptionsUbicacionGuardada;
+    private Marker markerUbicacionGuardada;
+    private MarkerOptions markerOptionsFoto;
+    private Marker markerFoto;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.READ_CONTACTS},
-                    MY_PERMISSIONS_REQUEST_ACCESS_FINE_LOCATION);
+        try {
+            setContentView(R.layout.activity_maps);
+            SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
+                    .findFragmentById(R.id.map);
+            mapFragment.getMapAsync(this);
+            agregarHandlerBotonGuardado(this);
+        } catch (Exception e) {
+            e.printStackTrace();
         }
-        setContentView(R.layout.activity_maps);
-        SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
-                .findFragmentById(R.id.map);
-        mapFragment.getMapAsync(this);
     }
 
     @Override
     public void onMapReady(GoogleMap googleMap) {
-        mMap = googleMap;
-        final Context that = this;
-        LocationManager locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.READ_CONTACTS},
-                    MY_PERMISSIONS_REQUEST_ACCESS_FINE_LOCATION);
-            return;
-        }
-        locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 1, this);
-        locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000, 1, this);
-        buscarUbicacionActual(locationManager);
+        this.mMap = googleMap;
 
+        try {
+            LocationManager locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                verificarPermisos();
+                return;
+            }
+            this.mMap.setMyLocationEnabled(true);
+            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000, 1, this);
+            locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000, 1, this);
+            buscarPosicionGuardada(locationManager);
+            cargarMarcadorFotoGuardada();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void agregarHandlerBotonGuardado(final Context that) {
         final Button button = findViewById(R.id.botonGuardar);
         button.setOnClickListener(new View.OnClickListener() {
             public void onClick(View v) {
@@ -106,15 +126,18 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                 Toast.makeText(that, "Guardado Exitosamente", Toast.LENGTH_SHORT).show();
             }
         });
-        this.mMap.setMyLocationEnabled(true);
     }
 
     @Override
     public void onLocationChanged(Location location) {
-        this.ubicacionUsuario = location;
-        actualizarDistancias();
-        actualizarLabelsDistancias();
-        actualizarMarcadorPosicionActual();
+        try {
+            this.ubicacionUsuario = location;
+            actualizarDistancias();
+            actualizarLabelsDistancias();
+            actualizarMarcadorPosicionActual();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     private void actualizarDistancias() {
@@ -168,11 +191,9 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         return distancias[0];
     }
 
-    private void buscarUbicacionActual(LocationManager locationManager) {
+    private void buscarPosicionGuardada(LocationManager locationManager) {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.READ_CONTACTS},
-                    MY_PERMISSIONS_REQUEST_ACCESS_FINE_LOCATION);
+            verificarPermisos();
             return;
         }
         this.ubicacionUsuario = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
@@ -183,26 +204,23 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             this.onLocationChanged(this.ubicacionUsuario);
             actualizarMarcadorPosicionActual();
 
-            SharedPreferences sharedPreferences = getSharedPreferences(ARCHIVO_PREFERENCIAS, 0);
-            MarkerOptions marcadorPosicionGuardada = new MarkerOptions();
-            marcadorPosicionGuardada.icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE));
-            LatLng ubicacionGuardada;
-            if (sharedPreferences.contains(KEY_LATITUD) && sharedPreferences.contains(KEY_LONGITUD) && sharedPreferences.contains(KEY_NOMBRE_MARCADOR)) {
-                String latitudString = sharedPreferences.getString(KEY_LATITUD, "");
-                String longitudString = sharedPreferences.getString(KEY_LONGITUD, "");
-                float latitudGuardada = Float.parseFloat(latitudString);
-
-                float longitudGuardada = Float.parseFloat(longitudString);
-                String textoGuardado = sharedPreferences.getString(KEY_NOMBRE_MARCADOR, "");
-                ubicacionGuardada = new LatLng(latitudGuardada, longitudGuardada);
-                marcadorPosicionGuardada.position(ubicacionGuardada);
-                marcadorPosicionGuardada.title(textoGuardado);
+            this.markerOptionsUbicacionGuardada = new MarkerOptions();
+            this.markerOptionsUbicacionGuardada.icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE));
+            LatLng ubicacionGuardada = cargarUbicacionGuardada(KEY_LATITUD_UBICACION_GUARDADA, KEY_LONGITUD_UBICACION_GUARDADA);
+            String textoGuardado = cargarNombreMarcadorGuardado(KEY_NOMBRE_MARCADOR);
+            if (ubicacionGuardada != null) {
+                this.markerOptionsUbicacionGuardada.position(ubicacionGuardada);
+                if (textoGuardado != null && !textoGuardado.trim().equals("")) {
+                    this.markerOptionsUbicacionGuardada.title(textoGuardado);
+                } else {
+                    this.markerOptionsUbicacionGuardada.title("Marcador Guardado");
+                }
             } else {
                 ubicacionGuardada = new LatLng(4.636775, -74.054765);
-                marcadorPosicionGuardada.position(new LatLng(4.636775, -74.054765));
-                marcadorPosicionGuardada.title("Posición Predeterminada");
+                this.markerOptionsUbicacionGuardada.position(new LatLng(4.636775, -74.054765));
+                this.markerOptionsUbicacionGuardada.title("Posición Predeterminada");
             }
-            mMap.addMarker(marcadorPosicionGuardada);
+            markerUbicacionGuardada = mMap.addMarker(this.markerOptionsUbicacionGuardada);
             mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(ubicacionGuardada, 18));
 
             mMap.addMarker(new MarkerOptions().position(UBICACION_BLOQE_A).title("Bloque A"));
@@ -216,16 +234,45 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         }
     }
 
-    private void actualizarMarcadorPosicionActual() {
-        LatLng ubicacionActual = new LatLng(this.ubicacionUsuario.getLatitude(), this.ubicacionUsuario.getLongitude());
-        if (this.marcadorUbicacionActual == null) {
-            this.marcadorUbicacionActual = new MarkerOptions();
-            mMap.addMarker(marcadorUbicacionActual
-                    .position(ubicacionActual)
-                    .title("Posicion Actual")
-                    .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_YELLOW)));
+    private LatLng cargarUbicacionGuardada(String keyLatitud, String keyLongitud) {
+        LatLng ubicacionGuardada = null;
+        SharedPreferences sharedPreferences = getSharedPreferences(ARCHIVO_PREFERENCIAS, 0);
+        if (sharedPreferences.contains(keyLatitud) && sharedPreferences.contains(keyLongitud)) {
+            String latitudString = sharedPreferences.getString(keyLatitud, "");
+            String longitudString = sharedPreferences.getString(keyLongitud, "");
+            float latitudGuardada = Float.parseFloat(latitudString);
+            float longitudGuardada = Float.parseFloat(longitudString);
+            ubicacionGuardada = new LatLng(latitudGuardada, longitudGuardada);
         }
-        this.marcadorUbicacionActual.position(ubicacionActual);
+        return ubicacionGuardada;
+    }
+
+    private String cargarNombreMarcadorGuardado(String keyMarcador) {
+        String textoGuardado = null;
+        SharedPreferences sharedPreferences = getSharedPreferences(ARCHIVO_PREFERENCIAS, 0);
+        if (sharedPreferences.contains(keyMarcador)) {
+            textoGuardado = sharedPreferences.getString(keyMarcador, null);
+        }
+        return textoGuardado;
+    }
+
+    private void cargarMarcadorFotoGuardada() {
+        Bitmap foto = leerImagen();
+        if (foto != null) {
+            reemplazarMarcadorPosicionFoto(foto, cargarUbicacionGuardada(KEY_LATITUD_FOTO, KEY_LONGITUD_FOTO));
+        }
+    }
+
+    private void actualizarMarcadorPosicionActual() {
+        if (this.markerUbicacionActual != null) {
+            this.markerUbicacionActual.remove();
+        }
+        LatLng ubicacionActual = new LatLng(this.ubicacionUsuario.getLatitude(), this.ubicacionUsuario.getLongitude());
+        this.markerOptionsUbicacionActual = new MarkerOptions();
+        this.markerOptionsUbicacionActual.position(ubicacionActual)
+                .title("Posicion Actual")
+                .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_YELLOW));
+        this.markerUbicacionActual = mMap.addMarker(this.markerOptionsUbicacionActual);
     }
 
     @Override
@@ -247,67 +294,99 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     protected void onDestroy() {
         super.onDestroy();
 
+        try {
+            guardarUbicacion(this.ubicacionUsuario, KEY_LATITUD_UBICACION_GUARDADA, KEY_LONGITUD_UBICACION_GUARDADA);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void guardarUbicacion(Location ubicacion, String keyLatitud, String keyLongitud) {
         SharedPreferences settings = getSharedPreferences(ARCHIVO_PREFERENCIAS, 0);
         SharedPreferences.Editor editor = settings.edit();
 
-        String t = String.valueOf(ubicacionUsuario.getLatitude());
-        editor.putString(KEY_LATITUD, t);
+        String t = String.valueOf(ubicacion.getLatitude());
+        editor.putString(keyLatitud, t);
         editor.commit();
 
-        t = String.valueOf(ubicacionUsuario.getLongitude());
-        editor.putString(KEY_LONGITUD, t);
+        t = String.valueOf(ubicacion.getLongitude());
+        editor.putString(keyLongitud, t);
         editor.commit();
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode,
                                            String permissions[], int[] grantResults) {
-        switch (requestCode) {
-            case MY_PERMISSIONS_REQUEST_ACCESS_FINE_LOCATION: {
-                // If request is cancelled, the result arrays are empty.
-                if (grantResults.length > 0
-                        && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    actualizarDistancias();
-                    actualizarLabelsDistancias();
-                } else {
-                    // permission denied, boo! Disable the
-                    // functionality that depends on this permission.
+        try {
+            switch (requestCode) {
+                case SOLICITUD_ACCESS_FINE_LOCATION: {
+                    // If request is cancelled, the result arrays are empty.
+                    if (grantResults.length > 0
+                            && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                        onMapReady(this.mMap);
+                    } else {
+                        // permission denied, boo! Disable the
+                        // functionality that depends on this permission.
+                    }
+                    return;
                 }
-                return;
             }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
     public void tomarFoto(View view) {
-        enviarSolicitudTomarFoto();
+        try {
+            enviarSolicitudTomarFoto();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     private void enviarSolicitudTomarFoto() {
         Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
         if (takePictureIntent.resolveActivity(getPackageManager()) != null) {
-            startActivityForResult(takePictureIntent, REQUEST_IMAGE_CAPTURE);
+            startActivityForResult(takePictureIntent, PETICION_CAPTURA_IMAGEN);
         }
     }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        if (requestCode == REQUEST_IMAGE_CAPTURE && resultCode == RESULT_OK) {
-            Bundle extras = data.getExtras();
-            Bitmap foto = (Bitmap) extras.get("data");
-            guardarImagen(foto);
-            LatLng ubicacionActual = new LatLng(this.ubicacionUsuario.getLatitude(), this.ubicacionUsuario.getLongitude());
+        try {
+            if (requestCode == PETICION_CAPTURA_IMAGEN && resultCode == RESULT_OK) {
+                Bundle extras = data.getExtras();
+                Bitmap foto = (Bitmap) extras.get("data");
+                guardarImagen(foto);
+                guardarUbicacion(this.ubicacionUsuario, KEY_LATITUD_FOTO, KEY_LONGITUD_FOTO);
+                LatLng ubicacionActual = new LatLng(this.ubicacionUsuario.getLatitude(), this.ubicacionUsuario.getLongitude());
 
-            if (this.marcadorFoto == null) {
-                this.marcadorFoto = new MarkerOptions();
-                this.marcadorFoto.title("Foto Guardada")
-                        .icon(BitmapDescriptorFactory.fromBitmap(foto))
-                        .position(ubicacionActual);
-                mMap.addMarker(this.marcadorFoto);
+                if (this.markerOptionsFoto == null) {
+                    this.markerOptionsFoto = new MarkerOptions();
+                    this.markerOptionsFoto.title("Foto")
+                            .icon(BitmapDescriptorFactory.fromBitmap(foto))
+                            .position(ubicacionActual);
+                    this.markerFoto = mMap.addMarker(this.markerOptionsFoto);
+                } else {
+                    reemplazarMarcadorPosicionFoto(foto, ubicacionActual);
+                }
             }
-            this.marcadorFoto.title("Foto Guardada")
-                    .icon(BitmapDescriptorFactory.fromBitmap(foto))
-                    .position(ubicacionActual);
+        } catch (Exception e) {
+            e.printStackTrace();
         }
+    }
+
+    private void reemplazarMarcadorPosicionFoto(Bitmap foto, LatLng ubicacionActual) {
+        if (this.markerFoto != null) {
+            this.markerFoto.remove();
+        }
+        if (this.markerOptionsFoto == null) {
+            this.markerOptionsFoto = new MarkerOptions();
+        }
+        this.markerOptionsFoto.title("Foto Guardada")
+                .icon(BitmapDescriptorFactory.fromBitmap(foto))
+                .position(ubicacionActual);
+        this.markerFoto = mMap.addMarker(this.markerOptionsFoto);
     }
 
     private void guardarImagen(Bitmap imagen) {
@@ -320,7 +399,33 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     }
 
     private Bitmap leerImagen() {
-        Bitmap fotoGuardada = BitmapFactory.decodeFile(NOMBRE_IMAGEN);
-        return fotoGuardada;
+        Bitmap foto = null;
+
+        try (FileInputStream fileInputStream = openFileInput(NOMBRE_IMAGEN);) {
+            foto = BitmapFactory.decodeStream(fileInputStream);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return foto;
+    }
+
+    private void verificarPermisos() {
+        verificarPermiso(Manifest.permission.ACCESS_FINE_LOCATION, SOLICITUD_ACCESS_FINE_LOCATION);
+        verificarPermiso(Manifest.permission.CAMERA, SOLICITUD_CAMERA);
+        verificarPermiso(Manifest.permission.WRITE_EXTERNAL_STORAGE, SOLICITUD_WRITE_EXTERNAL_STORAGE);
+    }
+
+    private void verificarPermiso(String nombrePermiso, int codigoSolicitud) {
+        int permissionCheck = ContextCompat.checkSelfPermission(
+                this, nombrePermiso);
+        if (permissionCheck != PackageManager.PERMISSION_GRANTED) {
+            requestPermission(nombrePermiso, codigoSolicitud);
+        }
+    }
+
+    private void requestPermission(String permissionName, int permissionRequestCode) {
+        ActivityCompat.requestPermissions(this,
+                new String[]{permissionName}, permissionRequestCode);
     }
 }
